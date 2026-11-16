@@ -13,7 +13,7 @@ The happy path is the easy part. This repo is about what happens when things go 
 
 ### ▶ Video walkthrough (6 min)
 
-[![LeadFlow Ops video walkthrough](https://img.youtube.com/vi/vkyFjgdyuwE/maxresdefault.jpg)](https://youtu.be/vkyFjgdyuwE)
+[![LeadFlow Ops video walkthrough](https://img.youtube.com/vi/vkyFjgdyuwE/hqdefault.jpg)](https://youtu.be/vkyFjgdyuwE)
 
 | Sync run in n8n | Failure caught, alerted, nothing lost |
 |---|---|
