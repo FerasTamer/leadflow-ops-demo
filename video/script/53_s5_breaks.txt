@@ -1,0 +1,1 @@
+But it breaks the sync, for every agency. The alert carries the exact database error: column phone does not exist.

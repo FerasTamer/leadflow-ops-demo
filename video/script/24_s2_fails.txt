@@ -1,0 +1,1 @@
+Palm Crest fails after three tries, while Blue Dune syncs normally. The alert says exactly what happened, and that the watermark did not move, so no data is lost. The health check reports degraded.

@@ -1,0 +1,1 @@
+And this is the same flow, built in n8n. Trigger, open runs, fetch a page, store it, loop, and the failure path to the alert.

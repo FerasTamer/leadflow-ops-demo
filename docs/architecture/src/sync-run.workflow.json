@@ -1,0 +1,254 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "LeadFlow Ops: one sync run (pages, retries, failure)",
+    "locale": "en",
+    "output": "docs/architecture/2-sync-run-workflow.html",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {
+      "id": "crm",
+      "label": "CRM API"
+    },
+    {
+      "id": "pg",
+      "label": "PostgreSQL functions"
+    },
+    {
+      "id": "n8n",
+      "label": "n8n workflow"
+    },
+    {
+      "id": "fail",
+      "label": "Failure handling",
+      "variant": "exception"
+    }
+  ],
+  "phases": [
+    {
+      "id": "open",
+      "label": "Open run",
+      "fromCol": 0,
+      "toCol": 1
+    },
+    {
+      "id": "pages",
+      "label": "Page loop",
+      "fromCol": 2,
+      "toCol": 4,
+      "variant": "emphasis"
+    },
+    {
+      "id": "report",
+      "label": "Report",
+      "fromCol": 5,
+      "toCol": 5,
+      "variant": "dashed"
+    }
+  ],
+  "mainPath": [
+    "trigger",
+    "open",
+    "fetch",
+    "store",
+    "more"
+  ],
+  "nodes": [
+    {
+      "id": "crmapi",
+      "lane": "crm",
+      "col": 2,
+      "type": "external",
+      "label": "GET /Leads",
+      "sublabel": "modified_since + page"
+    },
+    {
+      "id": "trigger",
+      "lane": "n8n",
+      "col": 0,
+      "type": "frontend",
+      "label": "Trigger",
+      "sublabel": "schedule / webhook"
+    },
+    {
+      "id": "open",
+      "lane": "n8n",
+      "col": 1,
+      "type": "backend",
+      "label": "Open runs",
+      "sublabel": "one per tenant"
+    },
+    {
+      "id": "fetch",
+      "lane": "n8n",
+      "col": 2,
+      "type": "backend",
+      "label": "Fetch one page",
+      "sublabel": "retry 3× · 10 s timeout"
+    },
+    {
+      "id": "store",
+      "lane": "n8n",
+      "col": 3,
+      "type": "backend",
+      "label": "Store page",
+      "sublabel": "one transaction"
+    },
+    {
+      "id": "more",
+      "lane": "n8n",
+      "col": 4,
+      "type": "messagebus",
+      "label": "More pages?",
+      "sublabel": "status = more"
+    },
+    {
+      "id": "markfailed",
+      "lane": "fail",
+      "col": 2,
+      "type": "security",
+      "label": "Mark run failed",
+      "sublabel": "fail_run() · keeps watermark"
+    },
+    {
+      "id": "failedq",
+      "lane": "fail",
+      "col": 4,
+      "type": "security",
+      "label": "Run failed?",
+      "sublabel": "real DB status"
+    },
+    {
+      "id": "alert",
+      "lane": "fail",
+      "col": 5,
+      "type": "external",
+      "label": "#ops-alerts",
+      "sublabel": "error + safe to replay"
+    },
+    {
+      "id": "startfn",
+      "lane": "pg",
+      "col": 1,
+      "type": "database",
+      "label": "start_runs()",
+      "sublabel": "unique: 1 running/tenant"
+    },
+    {
+      "id": "completefn",
+      "lane": "pg",
+      "col": 3,
+      "type": "database",
+      "label": "complete_run()",
+      "sublabel": "upsert · quarantine",
+      "tag": "watermark on last page"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-trigger-open",
+      "from": "trigger",
+      "to": "open",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-open-start",
+      "from": "open",
+      "to": "startfn",
+      "label": "window",
+      "role": "branch"
+    },
+    {
+      "id": "e-open-fetch",
+      "from": "open",
+      "to": "fetch",
+      "label": "page 1",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-fetch-crm",
+      "from": "fetch",
+      "to": "crmapi",
+      "label": "HTTPS",
+      "role": "branch"
+    },
+    {
+      "id": "e-fetch-store",
+      "from": "fetch",
+      "to": "store",
+      "label": "200",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-store-complete",
+      "from": "store",
+      "to": "completefn",
+      "label": "records, more?",
+      "role": "branch"
+    },
+    {
+      "id": "e-store-more",
+      "from": "store",
+      "to": "more",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-more-loop",
+      "from": "more",
+      "to": "fetch",
+      "label": "yes · page + 1",
+      "role": "return"
+    },
+    {
+      "id": "e-more-failedq",
+      "from": "more",
+      "to": "failedq",
+      "label": "no"
+    },
+    {
+      "id": "e-fetch-markfailed",
+      "from": "fetch",
+      "to": "markfailed",
+      "label": "still failing",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "id": "e-markfailed-failedq",
+      "from": "markfailed",
+      "to": "failedq",
+      "label": "status",
+      "variant": "security"
+    },
+    {
+      "id": "e-failedq-alert",
+      "from": "failedq",
+      "to": "alert",
+      "label": "failed",
+      "variant": "security",
+      "role": "error"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Why a page loop",
+      "items": [
+        "Each page is stored in its own transaction; the watermark moves only after the last one",
+        "A failure on page 3 replays all pages: idempotent upserts make that safe",
+        "n8n's built-in pagination returned 429/500 bodies as pages, so it was replaced"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Failure semantics",
+      "items": [
+        "Transient 429/5xx: retried 3× with 2 s waits, no alert if a retry succeeds",
+        "SQL errors are caught inside complete_run(), which records the real SQLSTATE",
+        "Alerts fire on the run's real status, so a committed run never raises a false alarm"
+      ]
+    }
+  ]
+}

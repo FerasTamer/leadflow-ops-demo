@@ -1,0 +1,1 @@
+Scenario one: the CRM sync. The first run pulls every lead for both agencies. Then the script compares the CRM and the database, record by record.

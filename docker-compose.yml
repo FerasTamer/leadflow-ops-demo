@@ -1,0 +1,83 @@
+name: leadflow
+
+# All ports bind to 127.0.0.1 only. Postgres is not published at all:
+# it is reachable from the internal network and through `docker compose exec`.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run ./demo.sh setup first}
+      POSTGRES_DB: leadflow
+      TZ: Asia/Dubai
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d leadflow"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks: [internal]
+    restart: unless-stopped
+
+  api:
+    image: postgrest/postgrest:v12.2.8
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${AUTHENTICATOR_PASSWORD}@db:5432/leadflow
+      PGRST_DB_SCHEMAS: api
+      PGRST_DB_ANON_ROLE: web_anon
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_POOL_ACQUISITION_TIMEOUT: 5
+    ports:
+      - "127.0.0.1:3001:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [internal]
+    restart: unless-stopped
+
+  mock-crm:
+    build: ./mock-crm
+    environment:
+      CRM_API_TOKEN: ${CRM_API_TOKEN}
+    volumes:
+      - crmdata:/data
+    ports:
+      - "127.0.0.1:8089:8080"
+    networks: [internal]
+    restart: unless-stopped
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.14.2
+    entrypoint: ["/bin/sh", "/seed/bootstrap.sh"]
+    environment:
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      SYNC_WORKER_PASSWORD: ${SYNC_WORKER_PASSWORD}
+      CRM_API_TOKEN: ${CRM_API_TOKEN}
+      GENERIC_TIMEZONE: Asia/Dubai
+      TZ: Asia/Dubai
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_SECURE_COOKIE: "false"
+      WEBHOOK_URL: http://localhost:5678/
+    volumes:
+      - ./n8n:/seed:ro
+      - n8ndata:/home/node/.n8n
+    ports:
+      - "127.0.0.1:5678:5678"
+    depends_on:
+      db:
+        condition: service_healthy
+      mock-crm:
+        condition: service_healthy
+    networks: [internal]
+    restart: unless-stopped
+
+networks:
+  internal:
+
+volumes:
+  pgdata:
+  crmdata:
+  n8ndata:

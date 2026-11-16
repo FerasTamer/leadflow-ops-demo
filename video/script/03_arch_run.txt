@@ -1,0 +1,1 @@
+This is one sync run. It opens one run per agency, fetches one page at a time with three retries, and stores each page in its own transaction. It loops while the CRM reports more records, and the watermark only moves after the last page. Any failure goes to the failure lane, which reads the real status from the database, and sends an alert.

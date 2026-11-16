@@ -1,0 +1,1 @@
+Scenario four: backup and restore. A backup, with a checksum, and a manifest of exactly what it must contain.

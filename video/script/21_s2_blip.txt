@@ -1,0 +1,1 @@
+Scenario two: failure and replay. First, a small blip. The CRM rate limits one request. n8n retries, the run succeeds, and no alert is needed.

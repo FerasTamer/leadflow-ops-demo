@@ -1,0 +1,1 @@
+Now a real outage. The CRM starts returning server errors, for Palm Crest only.

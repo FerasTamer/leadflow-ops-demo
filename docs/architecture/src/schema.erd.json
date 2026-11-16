@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "diagram_type": "erd",
+  "meta": {
+    "title": "LeadFlow Ops: database schema",
+    "locale": "en",
+    "output": "docs/architecture/3-database-schema.html",
+    "quality_profile": "standard"
+  },
+  "layout": { "mode": "grid", "gapX": 80, "gapY": 36 },
+  "entities": [
+    {
+      "id": "tenants", "label": "core.tenants", "tag": "core", "row": 0, "col": 0, "width": 256,
+      "attributes": [
+        { "name": "id", "type": "int", "key": "pk" },
+        { "name": "slug", "type": "text", "key": "uk" },
+        { "name": "name", "type": "text" },
+        { "name": "crm_org_id", "type": "text", "key": "uk" },
+        { "name": "sync_enabled", "type": "boolean" }
+      ]
+    },
+    {
+      "id": "leads", "label": "core.leads", "tag": "core", "row": 1, "col": 0, "width": 256,
+      "attributes": [
+        { "name": "tenant_id", "type": "int", "key": ["pk", "fk"], "references": "tenants.id" },
+        { "name": "crm_id", "type": "text", "key": "pk" },
+        { "name": "full_name", "type": "text" },
+        { "name": "phone", "type": "text" },
+        { "name": "email", "type": "text" },
+        { "name": "source", "type": "text" },
+        { "name": "stage", "type": "text" },
+        { "name": "owner", "type": "text" },
+        { "name": "budget_aed", "type": "numeric(14,2)" },
+        { "name": "community", "type": "text" },
+        { "name": "crm_modified_at", "type": "timestamptz" },
+        { "name": "synced_at", "type": "timestamptz" }
+      ]
+    },
+    {
+      "id": "watermarks", "label": "sync.watermarks", "tag": "sync", "row": 0, "col": 1, "width": 262,
+      "attributes": [
+        { "name": "tenant_id", "type": "int", "key": ["pk", "fk"], "references": "tenants.id" },
+        { "name": "last_modified_at", "type": "timestamptz" },
+        { "name": "updated_at", "type": "timestamptz" }
+      ]
+    },
+    {
+      "id": "runs", "label": "sync.runs", "tag": "sync", "row": 1, "col": 1, "width": 262,
+      "attributes": [
+        { "name": "id", "type": "bigserial", "key": "pk" },
+        { "name": "tenant_id", "type": "int", "key": "fk", "references": "tenants.id" },
+        { "name": "trigger", "type": "text" },
+        { "name": "replay_of", "type": "bigint", "key": "fk", "references": "runs.id" },
+        { "name": "window_from", "type": "timestamptz" },
+        { "name": "page", "type": "int" },
+        { "name": "max_modified", "type": "timestamptz" },
+        { "name": "started_at", "type": "timestamptz" },
+        { "name": "finished_at", "type": "timestamptz" },
+        { "name": "status", "type": "text" },
+        { "name": "fetched", "type": "int" },
+        { "name": "inserted", "type": "int" },
+        { "name": "updated", "type": "int" },
+        { "name": "unchanged", "type": "int" },
+        { "name": "quarantined", "type": "int" },
+        { "name": "error", "type": "text" }
+      ]
+    },
+    {
+      "id": "quarantine", "label": "sync.quarantine", "tag": "sync", "row": 2, "col": 1, "width": 262,
+      "attributes": [
+        { "name": "id", "type": "bigserial", "key": "pk" },
+        { "name": "run_id", "type": "bigint", "key": "fk", "references": "runs.id" },
+        { "name": "tenant_id", "type": "int", "key": "fk", "references": "tenants.id" },
+        { "name": "crm_id", "type": "text" },
+        { "name": "modified_raw", "type": "text" },
+        { "name": "reason", "type": "text" },
+        { "name": "payload", "type": "jsonb" },
+        { "name": "created_at", "type": "timestamptz" }
+      ]
+    },
+    {
+      "id": "migrations", "label": "public.schema_migrations", "tag": "release", "row": 0, "col": 2, "width": 250,
+      "attributes": [
+        { "name": "version", "type": "text", "key": "pk" },
+        { "name": "file", "type": "text" },
+        { "name": "checksum", "type": "text" },
+        { "name": "applied_at", "type": "timestamptz" }
+      ]
+    }
+  ],
+  "relationships": [
+    { "id": "leads_tenant", "from": "leads", "to": "tenants", "label": "belongs to", "fromCardinality": "many", "toCardinality": "one" },
+    { "id": "watermark_tenant", "from": "watermarks", "to": "tenants", "label": "one per tenant", "fromCardinality": "one", "toCardinality": "one" },
+    { "id": "runs_tenant", "from": "runs", "to": "tenants", "fromCardinality": "many", "toCardinality": "one", "identifying": false, "variant": "dashed" },
+    { "id": "quarantine_run", "from": "quarantine", "to": "runs", "label": "found in", "fromCardinality": "many", "fromOptional": true, "toCardinality": "one", "identifying": false, "variant": "dashed" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Keys that carry the guarantees",
+      "items": [
+        "core.leads PK (tenant_id, crm_id) is the idempotency key: a replay can never duplicate a lead",
+        "sync.runs has a partial unique index on tenant_id WHERE status = 'running': one run in flight per tenant",
+        "sync.quarantine is deduplicated on (tenant_id, crm_id, reason, modified_raw)"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Security on the tables",
+      "items": [
+        "core.leads has ENABLE + FORCE row level security, policy tenant_id = JWT claim",
+        "api.leads is a security_invoker view over core.leads, so RLS applies through the API",
+        "sync.* is reachable only through SECURITY DEFINER functions with a pinned search_path"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Audit and release",
+      "items": [
+        "sync.runs.replay_of links every replay to the failed run it recovers (self reference)",
+        "schema_migrations stores a sha256 per version; changed files after apply are flagged as drift",
+        "quarantine.run_id and runs.tenant_id are non-identifying links, drawn dashed"
+      ]
+    }
+  ]
+}

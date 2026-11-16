@@ -1,0 +1,1 @@
+The next run fetches only what changed since each agency's watermark. Eight inserted and five updated for Palm Crest. Four and three for Blue Dune.

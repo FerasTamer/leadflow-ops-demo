@@ -1,0 +1,1 @@
+A restore drill, into a scratch database. The checksum is verified, the restored data is compared with the manifest, and the live database is not touched.

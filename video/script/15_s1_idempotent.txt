@@ -1,0 +1,1 @@
+Running it again with nothing new writes nothing. The sync is idempotent, with zero duplicates.

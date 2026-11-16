@@ -1,0 +1,1 @@
+Scenario three: tenant isolation. Same API, same table. Each agency's token sees only its own leads.

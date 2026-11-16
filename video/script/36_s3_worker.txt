@@ -1,0 +1,1 @@
+And even the n8n account cannot read the leads table. It can only call the three sync functions.

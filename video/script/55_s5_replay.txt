@@ -1,0 +1,1 @@
+The replay recovers the failed window. The sync is healthy, and the CRM and the database match again.

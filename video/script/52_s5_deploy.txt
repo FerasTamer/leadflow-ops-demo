@@ -1,0 +1,1 @@
+Release four is deployed. An automatic backup is taken first, and the migration applies cleanly.

@@ -1,0 +1,1 @@
+One command rolls the release back, in a single transaction, after another safety backup.

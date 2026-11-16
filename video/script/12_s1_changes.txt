@@ -1,0 +1,1 @@
+Now agents work in the CRM. Twelve new enquiries arrive, and eight existing leads move to a new stage.

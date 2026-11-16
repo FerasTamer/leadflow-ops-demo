@@ -1,0 +1,1 @@
+Hi Saeed. This is a clean-room replica I built from scratch for this assessment. It uses no employer code and no real data: every agency and every lead here is fictional. The narration was generated with ElevenLabs from my own script, which felt fitting for an automation role. I'll start with the design, then run the five scenarios you asked for.

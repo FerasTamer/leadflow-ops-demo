@@ -1,0 +1,1 @@
+Because the watermark was restored with the data, the next sync fetches everything created after the backup. Palm Crest is complete again, and matches the CRM.

@@ -1,0 +1,1 @@
+Three rules hold it together. The sync position, called the watermark, only moves in the same transaction that stores the data. Bad records are quarantined, never dropped. And every backup, and every release, has a verified way back.

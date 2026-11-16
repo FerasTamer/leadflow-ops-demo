@@ -1,0 +1,1 @@
+Every run, successful or failed, is recorded in n8n, and in the database. That's the replica: clearly designed, built to fail safely, with every claim checked automatically. I'm happy to walk through any part of it live. Thank you, Saeed.

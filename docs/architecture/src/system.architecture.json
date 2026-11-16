@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "LeadFlow Ops: system architecture",
+    "locale": "en",
+    "output": "docs/architecture/1-system-architecture.html",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    { "id": "alerts", "type": "external", "label": "#ops-alerts", "sublabel": "Slack-style webhook", "pos": [340, 40], "size": [160, 60] },
+    { "id": "crm", "type": "external", "label": "CRM API", "sublabel": "Zoho/Bigin-style mock", "pos": [40, 200], "size": [150, 64] },
+    { "id": "n8n", "type": "backend", "label": "n8n: CRM Lead Sync", "sublabel": "schedule + webhook", "pos": [340, 200], "size": [160, 64], "tag": "orchestration" },
+    { "id": "db", "type": "database", "label": "PostgreSQL 16", "sublabel": "core · sync · api + RLS", "pos": [680, 200], "size": [170, 64], "tag": "source of state" },
+    { "id": "api", "type": "security", "label": "PostgREST", "sublabel": "JWT → tenant_user", "pos": [1040, 200], "size": [150, 64] },
+    { "id": "apps", "type": "frontend", "label": "Agency apps", "sublabel": "tenant 1 / tenant 2", "pos": [1300, 200], "size": [150, 64] },
+    { "id": "scripts", "type": "backend", "label": "Ops scripts", "sublabel": "migrate · backup · restore", "pos": [680, 380], "size": [170, 64] },
+    { "id": "backups", "type": "database", "label": "Backups", "sublabel": "dump + sha256 + manifest", "pos": [1040, 380], "size": [170, 64] },
+    { "id": "operator", "type": "external", "label": "Operator", "sublabel": "demo.sh / runbook", "pos": [680, 540], "size": [170, 60] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Docker Compose stack · ports on 127.0.0.1 only", "wraps": ["alerts", "crm", "n8n", "db", "api"], "pad": 20 },
+    { "kind": "security-group", "label": "not published", "wraps": ["db"], "pad": 12 }
+  ],
+  "connections": [
+    { "from": "n8n", "to": "crm", "label": "GET Leads · paged", "variant": "emphasis" },
+    { "from": "n8n", "to": "db", "label": "sync fns as sync_worker", "variant": "emphasis" },
+    { "from": "apps", "to": "api", "label": "HTTPS + JWT" },
+    { "from": "api", "to": "db", "label": "SQL as tenant_user · RLS", "variant": "security" },
+    { "from": "n8n", "to": "alerts", "label": "on failure", "variant": "dashed" },
+    { "from": "scripts", "to": "db", "label": "migrate · restore" },
+    { "from": "scripts", "to": "backups", "label": "pg_dump · verify" },
+    { "from": "scripts", "to": "n8n", "label": "webhook: run / replay", "variant": "dashed" },
+    { "from": "operator", "to": "scripts", "label": "./demo.sh" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Data rules",
+      "items": [
+        "Watermark moves only in the transaction that stores the last page",
+        "Upsert by (tenant_id, crm_id), only with a newer Modified_Time",
+        "Window = watermark − 2 min, so late or same-second edits are not missed",
+        "Malformed records are quarantined with a reason, never dropped"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Trust boundaries",
+      "items": [
+        "n8n connects as sync_worker: EXECUTE on 3 functions, no table access",
+        "Agencies reach data only through PostgREST; FORCE RLS on tenant_id from the JWT",
+        "Public /rpc/health returns aggregates only; Postgres is never published"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Recovery paths",
+      "items": [
+        "A failed run keeps its watermark, so a replay refetches the same window",
+        "Every backup has a checksum and manifest; restores go to a scratch DB first",
+        "Every migration ships a .down.sql; backups run before deploy and rollback"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,413 @@
+{
+  "id": "crmLeadSync00001",
+  "name": "CRM Lead Sync (incremental, idempotent)",
+  "active": false,
+  "isArchived": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Dubai",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true
+  },
+  "nodes": [
+    {
+      "id": "6f1d1c4e-1a0b-4c1e-9d10-000000000001",
+      "name": "Every 5 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "disabled": true,
+      "notes": "Disabled in the demo so the scenarios stay deterministic (each run is triggered explicitly). Enable in production.",
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "6f1d1c4e-1a0b-4c1e-9d10-000000000002",
+      "name": "Run now / replay (webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        200
+      ],
+      "webhookId": "0b7f3c52-5c43-4d0e-8f7e-0c0a5c000001",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crm-sync",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "6f1d1c4e-1a0b-4c1e-9d10-000000000003",
+      "name": "Open runs (one per tenant)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        240,
+        100
+      ],
+      "notes": "sync.start_runs() opens at most one run per tenant (unique index) and returns the fetch window: watermark minus a 2-minute overlap.",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select * from sync.start_runs($1);",
+        "options": {
+          "queryReplacement": "={{ [ $json.body?.trigger ?? 'schedule' ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgSyncWorker0001",
+          "name": "Postgres (sync_worker)"
+        }
+      }
+    },
+    {
+      "id": "6f1d1c4e-1a0b-4c1e-9d10-000000000004",
+      "name": "Fetch one page from CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "notes": "One page per request. Retries 3x for transient errors (5xx, 429, timeouts). If it still fails, the error output marks the run failed and alerts; the watermark is untouched, so the next run replays the same window.",
+      "parameters": {
+        "url": "http://mock-crm:8080/crm/v2/Leads",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "modified_since",
+              "value": "={{ $json.window_from }}"
+            },
+            {
+              "name": "per_page",
+              "value": "200"
+            },
+            {
+              "name": "page",
+              "value": "={{ $json.page }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-CRM-Org",
+              "value": "={{ $json.crm_org_id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "crmApiToken00001",
+          "name": "CRM API token"
+        }
+      }
+    },
+    {
+      "id": "6f1d1c4e-1a0b-4c1e-9d10-000000000005",
+      "name": "Store page (advance watermark on last)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        0
+      ],
+      "onError": "continueErrorOutput",
+      "notes": "One transaction per page: idempotent upsert + quarantine. On the last page the watermark advances and the run closes. If storing fails, the function records the failure itself with the real Postgres error.",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select sync.complete_run($1::bigint, $2::jsonb, $3::boolean) as result;",
+        "options": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [ $('Open runs (one per tenant)').item.json.run_id, JSON.stringify($json.data ?? []), $json.info?.more_records === true ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgSyncWorker0001",
+          "name": "Postgres (sync_worker)"
+        }
+      }
+    },
+    {
+      "id": "6f1d1c4e-1a0b-4c1e-9d10-000000000006",
+      "name": "Mark run failed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        260
+      ],
+      "notes": "Connection-level failures (CRM down, DB unreachable) land here.",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select sync.fail_run($1::bigint, $2) as result;",
+        "options": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [ $('Open runs (one per tenant)').item.json.run_id, String(typeof $json.error === 'string' ? $json.error : ($json.error?.message || $json.message || $json.error?.description || 'unknown error')).slice(0, 500) ] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgSyncWorker0001",
+          "name": "Postgres (sync_worker)"
+        }
+      }
+    },
+    {
+      "id": "6f1d1c4e-1a0b-4c1e-9d10-000000000008",
+      "name": "Run failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        120
+      ],
+      "notes": "Both paths report the run's real status from the database, so a run that actually succeeded never raises an alert.",
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4c3a2b1d-0000-4000-8000-000000000001",
+              "leftValue": "={{ $json.result.status }}",
+              "rightValue": "failed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "6f1d1c4e-1a0b-4c1e-9d10-000000000007",
+      "name": "Alert #ops-alerts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        120
+      ],
+      "notes": "Stands in for a Slack / Google Chat incoming webhook.",
+      "parameters": {
+        "method": "POST",
+        "url": "http://mock-crm:8080/hooks/alert",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: ':rotating_light: CRM sync FAILED for ' + $json.result.tenant + ' (run #' + $json.result.run_id + ', ' + $json.result.failures_in_a_row + ' failure(s) in a row). Error: ' + $json.result.error + ' | Watermark NOT advanced: no data lost, safe to replay.', run_id: $json.result.run_id, tenant: $json.result.tenant }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      }
+    },
+    {
+      "id": "6f1d1c4e-1a0b-4c1e-9d10-00000000000a",
+      "name": "More pages?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4c3a2b1d-0000-4000-8000-000000000002",
+              "leftValue": "={{ $json.result.status }}",
+              "rightValue": "more",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "6f1d1c4e-1a0b-4c1e-9d10-00000000000b",
+      "name": "Next page",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1200,
+        -160
+      ],
+      "notes": "Carries run_id, crm_org_id, window_from and the next page number back into the fetch.",
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={{ JSON.stringify($json.result) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Every 5 minutes": {
+      "main": [
+        [
+          {
+            "node": "Open runs (one per tenant)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run now / replay (webhook)": {
+      "main": [
+        [
+          {
+            "node": "Open runs (one per tenant)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Open runs (one per tenant)": {
+      "main": [
+        [
+          {
+            "node": "Fetch one page from CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch one page from CRM": {
+      "main": [
+        [
+          {
+            "node": "Store page (advance watermark on last)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark run failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store page (advance watermark on last)": {
+      "main": [
+        [
+          {
+            "node": "More pages?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark run failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "More pages?": {
+      "main": [
+        [
+          {
+            "node": "Next page",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Run failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Next page": {
+      "main": [
+        [
+          {
+            "node": "Fetch one page from CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark run failed": {
+      "main": [
+        [
+          {
+            "node": "Run failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run failed?": {
+      "main": [
+        [
+          {
+            "node": "Alert #ops-alerts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "pinData": {},
+  "tags": []
+}
