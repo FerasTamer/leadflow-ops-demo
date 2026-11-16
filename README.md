@@ -56,14 +56,42 @@ end-to-end test: **62 checks**.
 
 ![System architecture](docs/images/architecture.png)
 
-Interactive versions of the diagrams are in [`docs/architecture/`](docs/architecture/); download a file and open it
-in a browser. Their sources (`docs/architecture/src/*.json`) are versioned with the code.
+**Interactive diagrams.** Open them in the browser. You can zoom, use the route and lens tools, switch to dark
+mode, and export.
 
-| Diagram | Answers |
-|---|---|
-| [System architecture](docs/images/architecture.png) | What runs where, who calls whom, and where the trust boundaries are |
-| [Sync run](docs/images/sync-run.png) | How one run moves through pages, retries, and failure handling |
-| [Database schema](docs/images/database-schema.png) | Which keys and constraints carry the idempotency and isolation guarantees |
+| Diagram | Answers | Open |
+|---|---|---|
+| System architecture | What runs where, who calls whom, and where the trust boundaries are | [interactive](https://ferastamer.github.io/leadflow-ops-demo/docs/architecture/1-system-architecture.html) · [image](docs/images/architecture.png) |
+| Sync run | How one run moves through pages, retries, and failure handling | [interactive](https://ferastamer.github.io/leadflow-ops-demo/docs/architecture/2-sync-run-workflow.html) · [image](docs/images/sync-run.png) |
+| Database schema | Which keys and constraints carry the idempotency and isolation guarantees | [interactive](https://ferastamer.github.io/leadflow-ops-demo/docs/architecture/3-database-schema.html) · [image](docs/images/database-schema.png) |
+
+### Diagrams as code (Archify)
+
+The diagrams are generated with [Archify](https://github.com/tt-a1i/archify), not drawn by hand. Each one is a small
+JSON spec in [`docs/architecture/src/`](docs/architecture/src/), versioned with the code:
+
+| Spec | Archify type | What it describes |
+|---|---|---|
+| `system.architecture.json` | `architecture` | Components, connections, trust boundaries (Docker network, unpublished database), decision cards |
+| `sync-run.workflow.json` | `workflow` | Swimlanes for CRM, PostgreSQL, n8n and failure handling; the page loop and the alert path |
+| `schema.erd.json` | `erd` | Every table and column from the migrations, with keys, foreign keys and domains (core / sync / release) |
+
+Archify's `finalize` command does more than render. It validates the spec against its schema, writes a
+self-contained HTML file, and checks the result in a real browser: no overflow, readable text, and labels that do
+not collide. A layout that breaks those rules fails the build and does not ship. Two examples from this repo:
+- The ERD was rejected until the tables were wide enough for their longest column names.
+- The workflow was rejected until its lanes were reordered so that no lines crossed.
+
+To change a diagram, edit its spec and regenerate it. Run this from the repo root, with Archify installed as a
+Claude Code skill:
+```bash
+ARCHIFY=~/.claude/skills/archify/bin/archify.mjs
+node $ARCHIFY finalize architecture docs/architecture/src/system.architecture.json docs/architecture/1-system-architecture.html --quality showcase
+node $ARCHIFY finalize workflow     docs/architecture/src/sync-run.workflow.json  docs/architecture/2-sync-run-workflow.html  --quality showcase
+node $ARCHIFY finalize erd          docs/architecture/src/schema.erd.json         docs/architecture/3-database-schema.html    --quality standard
+```
+When the code changes (a new table, a new workflow branch), update the spec in the same commit, so the
+documentation cannot drift from the system.
 
 ```mermaid
 flowchart LR
@@ -278,7 +306,7 @@ scripts/backup.sh                 dump + sha256 + globals + manifest + retention
 scripts/restore.sh                verify → scratch restore → manifest check → optional promote
 mock-crm/server.py                Zoho-style API, chaos switch, alert sink (Python standard library only)
 tools/mint_jwt.py                 short-lived tenant JWTs for the isolation scenario
-docs/architecture/                interactive diagrams (HTML) and their sources
+docs/architecture/                interactive diagrams (HTML, served by GitHub Pages) and their Archify specs (src/)
 docs/images/                      screenshots used in this README
 video/script/                     narration script, one file per video segment
 video/tools/                      the automated video pipeline (below)
